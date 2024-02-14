@@ -29,6 +29,7 @@ pre-commit = "^3.6.1"
 reuse = "^3.0.1"
 
 [tool.poetry.scripts]
+rfchameleon = "rfchameleon.cmd.rfchameleon:cli"
 
 [tool.isort]
 profile = "black"
