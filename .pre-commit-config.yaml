@@ -1,0 +1,42 @@
+#
+# SPDX-FileCopyrightText: Copyright 2024 Andreas Sandberg <andreas@sandberg.uk>
+#
+# SPDX-License-Identifier: 0BSD
+#
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v4.5.0
+  hooks:
+  - id: check-added-large-files
+  - id: check-ast
+  - id: check-case-conflict
+  - id: check-docstring-first
+  - id: check-executables-have-shebangs
+  - id: check-json
+  - id: check-symlinks
+  - id: check-toml
+  - id: check-yaml
+  - id: destroyed-symlinks
+  - id: end-of-file-fixer
+  - id: mixed-line-ending
+    args: [--fix=lf]
+  - id: name-tests-test
+    args: [--unittest]
+  - id: requirements-txt-fixer
+  - id: trailing-whitespace
+- repo: https://github.com/psf/black
+  rev: 24.2.0
+  hooks:
+  - id: black
+- repo: https://github.com/pre-commit/mirrors-mypy
+  rev: v1.8.0
+  hooks:
+  - id: mypy
+- repo: https://github.com/PyCQA/isort
+  rev: 5.13.2
+  hooks:
+  - id: isort
+- repo: https://github.com/fsfe/reuse-tool
+  rev: v3.0.1
+  hooks:
+  - id: reuse
