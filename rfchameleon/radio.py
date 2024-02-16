@@ -43,6 +43,8 @@ class RadioPreset(enum.Enum):
     TEST_NULL = UUID("00009CCB-0444-4534-8920-C8F2F17CC822")
     TEST_LOOPBACK = UUID("00019CCB-0444-4534-8920-C8F2F17CC822")
 
+    EI_RADIOLINK = UUID("0000F80F-61FD-46D5-9BC8-94AE0773FBA0")
+
     @property
     def long_name(self) -> str:
         try:
@@ -53,6 +55,7 @@ class RadioPreset(enum.Enum):
 
 radio_preset_names = {
     RadioPreset.CHAMELEON_CHAT: "RF Chameleon Chat",
+    RadioPreset.EI_RADIOLINK: "Ei RadioLink",
 }
 
 
