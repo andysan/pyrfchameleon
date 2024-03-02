@@ -68,7 +68,7 @@ def cli(
 
 @cli.command()
 @click.pass_context
-def info(ctx: click.Context):
+def info(ctx: click.Context) -> None:
     """Print device information."""
 
     obj = ctx.ensure_object(RadioContext)
@@ -131,7 +131,7 @@ bootloader_types = {
 @click.option(
     "--type", "-t", type=click.Choice(list(bootloader_types.keys())), default="reboot"
 )
-def reboot(ctx: click.Context, type: str):
+def reboot(ctx: click.Context, type: str) -> None:
     """Reboot the device. The type parameter can be used to enter the
     built-in bootloader on supported devices.
 
@@ -144,7 +144,7 @@ def reboot(ctx: click.Context, type: str):
 
 
 @cli.group()
-def test():
+def test() -> None:
     """General firmware and hardware test functionality."""
 
     pass
@@ -152,7 +152,7 @@ def test():
 
 @test.command()
 @click.pass_context
-def ping(ctx: click.Context):
+def ping(ctx: click.Context) -> None:
     """Transport layer ping test. This test sends a series of ping
     requests with different payload sizes. This test is designed to
     exercise various fragmentation scenarios and payload overflows.
@@ -192,7 +192,7 @@ def ping(ctx: click.Context):
 
 @test.command()
 @click.pass_context
-def loopback(ctx: click.Context):
+def loopback(ctx: click.Context) -> None:
     """Test radio RX/TX using a special loopback protocol preset. This
     currently requires a firmware compiled with a special test radio
     backend.
