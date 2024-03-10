@@ -234,7 +234,7 @@ CREATE TABLE raw_packets(
         data: bytes,
         *,
         ts: Optional[float] = None,
-    ) -> None:
+    ) -> int:
         if ts is None:
             ts = time.time()
 
@@ -244,10 +244,10 @@ CREATE TABLE raw_packets(
         else:
             payload, meta = data, None
 
-        self._conn.execute(
+        cursor = self._conn.execute(
             """
 INSERT INTO raw_packets(time, protocol, payload, meta, flags, rssi, channel, crc_ok)
-    SELECT ?, id, ?, ?, ?, ?, ?, ? FROM protocols WHERE uuid=?;
+    SELECT ?, id, ?, ?, ?, ?, ?, ? FROM protocols WHERE uuid=? RETURNING id;
         """,
             (
                 ts,
@@ -260,3 +260,9 @@ INSERT INTO raw_packets(time, protocol, payload, meta, flags, rssi, channel, crc
                 radio_preset.uuid,
             ),
         )
+
+        rows = cursor.fetchall()
+        assert len(rows) == 1
+        assert len(rows[0]) == 1
+        assert isinstance(rows[0][0], int)
+        return rows[0][0]
