@@ -7,8 +7,14 @@
 
 import errno
 import logging
+import pathlib
+import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import (
+    Callable,
+    Optional,
+    Sequence,
+)
 
 import click
 import usb.core  # type: ignore
@@ -19,13 +25,16 @@ from rfchameleon import (
     RadioErrno,
     TransportTimeoutError,
 )
+from rfchameleon.db import PacketDatabase
 from rfchameleon.radio import (
     Radio,
     RadioPreset,
 )
 from rfchameleon.transport import (
     BootloaderType,
+    RadioPresetDesc,
     RadioTransport,
+    RxInfo,
 )
 from rfchameleon.usb import (
     RFCH_PID,
@@ -213,11 +222,41 @@ def loopback(ctx: click.Context) -> None:
         print(radio.recv())
 
 
+def _rx(
+    ctx: click.Context,
+    radio: Radio,
+    preset_desc: RadioPresetDesc,
+    handlers: Sequence[Callable[[RxInfo, bytes, float], None]],
+) -> None:
+
+    radio.set_active_preset(preset_desc.uuid)
+
+    with radio.rx_enabled():
+        while True:
+            try:
+                rx_info, payload = radio.recv(timeout=1)
+                ts = time.time()
+            except TransportTimeoutError:
+                continue
+
+            for handler in handlers:
+                handler(rx_info, payload, ts)
+
+
 @test.command()
 @click.pass_context
 @click.option("--preset", "-p", type=int, default=0)
-def rx(ctx: click.Context, preset: int) -> None:
+@click.option(
+    "--database",
+    "-d",
+    type=click.Path(dir_okay=False, writable=True, path_type=pathlib.Path),
+    default=None,
+)
+def rx(ctx: click.Context, preset: int, database: Optional[pathlib.Path]) -> None:
     """Receive packets and print them on the console."""
+
+    def print_handler(rx_info: RxInfo, payload: bytes, ts: float) -> None:
+        print(rx_info, ":", payload.hex())
 
     obj = ctx.ensure_object(RadioContext)
     radio = obj.radio
@@ -227,14 +266,24 @@ def rx(ctx: click.Context, preset: int) -> None:
     except IndexError:
         ctx.fail("Invalid preset")
 
-    radio.set_active_preset(preset_desc.uuid)
-    with radio.rx_enabled():
-        while True:
-            try:
-                rx_info, payload = radio.recv(timeout=1)
-                print(rx_info, ":", payload.hex())
-            except TransportTimeoutError:
-                pass
+    handlers = [
+        print_handler,
+    ]
+
+    if database is not None:
+        db = ctx.with_resource(PacketDatabase.open(database))
+
+        def db_handler(rx_info: RxInfo, payload: bytes, ts: float) -> None:
+            with db.transaction():
+                db.add_packet(preset_desc, rx_info, payload, ts=ts)
+
+        with db.transaction():
+            db.create_or_upgrade_tables()
+            db.update_protocols(radio.radio_preset_descs)
+
+        handlers.append(db_handler)
+
+    _rx(ctx, radio, preset_desc, handlers)
 
 
 if __name__ == "__main__":
