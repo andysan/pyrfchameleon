@@ -30,6 +30,7 @@ from .transport import (
     RadioProperty,
     RadioState,
     RadioTransport,
+    RxInfo,
 )
 
 logger = logging.getLogger(__name__)
@@ -147,7 +148,7 @@ class Radio:
         finally:
             self.set_rx(False)
 
-    def recv(self, timeout: Optional[float] = None) -> bytes:
+    def recv(self, timeout: Optional[float] = None) -> Tuple[RxInfo, bytes]:
         return self._transport.recv(timeout=timeout)
 
     def send(self, packet: bytes) -> None:

@@ -204,6 +204,42 @@ BulkTypeOrInt = Union[int, BulkType]
 
 
 @dataclass
+class RxInfo(TransportObject):
+    F_CRC_OK = 1 << 0
+    F_CRC_VALID = 1 << 1
+    F_PRESET_VALID = 1 << 2
+    F_CHANNEL_VALID = 1 << 3
+    F_RSSI_VALID = 1 << 4
+
+    flags: int
+    crc_ok: Optional[bool]
+    radio_preset: Optional[int]
+    channel: Optional[int]
+    rssi: Optional[float]
+
+    _STRUCT = Struct("HHHh")
+
+    @classmethod
+    def unpack(cls, data: bytes) -> Self:
+        flags, radio_preset, channel, _rssi = cls._STRUCT.unpack(data)
+
+        crc_ok = ((flags & cls.F_CRC_OK) != 0) if flags & cls.F_CRC_VALID else None
+
+        rssi = _rssi / 16
+
+        return cls(
+            flags,
+            crc_ok,
+            radio_preset if flags & cls.F_PRESET_VALID else None,
+            channel if flags & cls.F_CHANNEL_VALID else None,
+            rssi if flags & cls.F_RSSI_VALID else None,
+        )
+
+
+ExtraInHeader = Union[bytes, RxInfo]
+
+
+@dataclass
 class BulkInHeader(TransportObject):
     MAGIC = b"RFCI"
 
@@ -213,18 +249,29 @@ class BulkInHeader(TransportObject):
     ret: ReturnValue
     payload_length: int
 
+    extra: ExtraInHeader = b""
+
     _STRUCT = Struct("<4sHHiH")
 
     @classmethod
     def unpack(cls, data: bytes) -> Self:
-        magic, type, flags, ret, payload_length = cls._STRUCT.unpack(data)
+        _hdr, _extra = data[: cls._STRUCT.size], data[cls._STRUCT.size :]
+        magic, type, flags, ret, payload_length = cls._STRUCT.unpack(_hdr)
+
+        _type = BulkType.create(type)
+        extra: ExtraInHeader
+        if _type == BulkType.RX:
+            extra = RxInfo.unpack(_extra)
+        else:
+            extra = _extra
 
         return cls(
             magic,
-            BulkType.create(type),
+            _type,
             flags,
             ReturnValue(ret),
             payload_length,
+            extra=extra,
         )
 
 
@@ -347,9 +394,10 @@ class RadioTransport(ABC):
         if reply != data:
             raise TransportException("Ping data corruption")
 
-    def recv(self, *, timeout: Optional[float] = None) -> bytes:
-        _, data = self.bulk_wait_for(BulkType.RX, timeout=timeout)
-        return data
+    def recv(self, *, timeout: Optional[float] = None) -> Tuple[RxInfo, bytes]:
+        hdr, data = self.bulk_wait_for(BulkType.RX, timeout=timeout)
+        assert isinstance(hdr.extra, RxInfo)
+        return hdr.extra, data
 
     def send(self, data: bytes, *, timeout: Optional[float] = None) -> None:
         self._command(BulkType.TX, data=data, timeout=timeout)

@@ -163,7 +163,9 @@ class UsbTransport(RadioTransport):
 
     def bulk_read(self, timeout: Optional[float] = None) -> Tuple[BulkInHeader, bytes]:
         try:
-            _header = self._usb_ep_in.read(BulkInHeader.struct_size(), timeout=timeout)
+            _header = bytes(
+                self._usb_ep_in.read(self._usb_ep_in.wMaxPacketSize, timeout=timeout)
+            )
             header = BulkInHeader.unpack(_header)
             logger.debug("bulk_read: %s", header)
             if header.magic != BulkInHeader.MAGIC:
