@@ -243,7 +243,7 @@ def _rx(
                 handler(rx_info, payload, ts)
 
 
-@test.command()
+@cli.command()
 @click.pass_context
 @click.option("--preset", "-p", type=int, default=0)
 @click.option(
@@ -253,7 +253,14 @@ def _rx(
     default=None,
 )
 def rx(ctx: click.Context, preset: int, database: Optional[pathlib.Path]) -> None:
-    """Receive packets and print them on the console."""
+    """Receive packets. The default behavior is to print packets on
+    the console.
+
+    Received packets can, optionally, be stored in an sqlite3
+    database. Databases are automatically created if they don't
+    exist. Packets are appended to existing databases.
+
+    """
 
     def print_handler(rx_info: RxInfo, payload: bytes, ts: float) -> None:
         print(rx_info, ":", payload.hex())
