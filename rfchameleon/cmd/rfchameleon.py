@@ -111,12 +111,12 @@ def info(ctx: click.Context) -> None:
     print()
 
     print("Radio configurations:")
-    for preset in obj.radio.radio_preset_descs:
+    for idx, preset in enumerate(obj.radio.radio_preset_descs):
         try:
             known_preset = RadioPreset(preset.uuid)
-            print(f"\t{preset.uuid}: {known_preset.long_name}")
+            print(f"\t{idx}: {preset.uuid}: {known_preset.long_name}")
         except ValueError:
-            print(f"\t{preset.uuid}")
+            print(f"\t{idx}: {preset.uuid}")
 
 
 bootloader_types = {
