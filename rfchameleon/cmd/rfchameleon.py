@@ -17,6 +17,7 @@ from rfchameleon import (
     CommandError,
     NoDeviceError,
     RadioErrno,
+    TransportTimeoutError,
 )
 from rfchameleon.radio import (
     Radio,
@@ -214,8 +215,26 @@ def loopback(ctx: click.Context) -> None:
 
 @test.command()
 @click.pass_context
-def rx(ctx: click.Context):
-    pass
+@click.option("--preset", "-p", type=int, default=0)
+def rx(ctx: click.Context, preset: int) -> None:
+    """Receive packets and print them on the console."""
+
+    obj = ctx.ensure_object(RadioContext)
+    radio = obj.radio
+
+    try:
+        preset_desc = radio.radio_preset_descs[preset]
+    except IndexError:
+        ctx.fail("Invalid preset")
+
+    radio.set_active_preset(preset_desc.uuid)
+    with radio.rx_enabled():
+        while True:
+            try:
+                rx_info, payload = radio.recv(timeout=1)
+                print(rx_info, ":", payload.hex())
+            except TransportTimeoutError:
+                pass
 
 
 if __name__ == "__main__":
