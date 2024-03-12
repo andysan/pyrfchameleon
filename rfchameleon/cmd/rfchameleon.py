@@ -8,8 +8,8 @@
 import errno
 import logging
 import pathlib
-import time
 from dataclasses import dataclass
+from datetime import datetime
 from functools import wraps
 from typing import (
     Callable,
@@ -75,6 +75,23 @@ def with_radio(func: Callable[Concatenate[Radio, P], R]) -> Callable[P, R]:
         return func(radio, *args, **kwargs)
 
     return wrapper
+
+
+def packet_handler_print(packet: RawPacket) -> None:
+    rx_info = packet.rx_info
+    meta = []
+
+    if rx_info.crc_ok is not None:
+        meta.append("CRC_OK" if rx_info.crc_ok else "CRC_ERROR")
+
+    if rx_info.rssi is not None:
+        meta.append(f"RSSI: {rx_info.rssi:.1f}")
+
+    if rx_info.channel is not None:
+        meta.append(f"CHANNEL: {rx_info.rssi:.1f}")
+
+    ts = datetime.fromtimestamp(packet.ts).isoformat()
+    print(ts, packet.payload.hex(), ", ".join(meta))
 
 
 @click.group()
@@ -246,7 +263,7 @@ def _rx(
     ctx: click.Context,
     radio: Radio,
     preset_desc: RadioPresetDesc,
-    handlers: Sequence[Callable[[RxInfo, bytes, float], None]],
+    handlers: Sequence[Callable[[RawPacket], None]],
 ) -> None:
 
     radio.set_active_preset(preset_desc.uuid)
@@ -255,12 +272,12 @@ def _rx(
         while True:
             try:
                 rx_info, payload = radio.recv(timeout=1)
-                ts = time.time()
+                packet = RawPacket.from_packet(preset_desc, rx_info, payload)
             except TransportTimeoutError:
                 continue
 
             for handler in handlers:
-                handler(rx_info, payload, ts)
+                handler(packet)
 
 
 @cli.command()
@@ -285,23 +302,19 @@ def rx(
 
     """
 
-    def print_handler(rx_info: RxInfo, payload: bytes, ts: float) -> None:
-        print(rx_info, ":", payload.hex())
-
     try:
         preset_desc = radio.radio_preset_descs[preset]
     except IndexError:
         ctx.fail("Invalid preset")
 
     handlers = [
-        print_handler,
+        packet_handler_print,
     ]
 
     if database is not None:
         db = ctx.with_resource(PacketDatabase.open(database))
 
-        def db_handler(rx_info: RxInfo, payload: bytes, ts: float) -> None:
-            packet = RawPacket.from_packet(preset_desc, rx_info, payload, ts=ts)
+        def db_handler(packet: RawPacket) -> None:
             with db.transaction():
                 db.add_packet(packet)
 
