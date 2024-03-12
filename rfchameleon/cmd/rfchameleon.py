@@ -10,14 +10,20 @@ import logging
 import pathlib
 import time
 from dataclasses import dataclass
+from functools import wraps
 from typing import (
     Callable,
     Optional,
     Sequence,
+    TypeVar,
 )
 
 import click
 import usb.core  # type: ignore
+from typing_extensions import (
+    Concatenate,
+    ParamSpec,
+)
 
 from rfchameleon import (
     CommandError,
@@ -45,14 +51,30 @@ from rfchameleon.usb import (
     UsbTransport,
 )
 
+P = ParamSpec("P")
+R = TypeVar("R")
+
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class RadioContext:
-    transport: RadioTransport
-    radio: Radio
-    usb_dev: usb.core.Device
+    transport: Optional[RadioTransport] = None
+    radio: Optional[Radio] = None
+    usb_dev: Optional[usb.core.Device] = None
+
+
+def with_radio(func: Callable[Concatenate[Radio, P], R]) -> Callable[P, R]:
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        ctx = click.get_current_context()
+        radio = ctx.ensure_object(RadioContext).radio
+        if radio is None:
+            ctx.fail("Failed to find RF Chameleon.")
+
+        return func(radio, *args, **kwargs)
+
+    return wrapper
 
 
 @click.group()
@@ -65,28 +87,28 @@ def cli(
     if debug:
         logging.basicConfig(level=logging.DEBUG)
 
+    obj = RadioContext()
+    ctx.obj = obj
+
     try:
         transport = ctx.with_resource(UsbTransport.open())
+        obj.transport = transport
+        obj.usb_dev = transport.usb_dev
+        obj.radio = Radio(transport)
     except NoDeviceError:
-        ctx.fail("Failed to find RF Chameleon.")
-
-    radio = Radio(transport)
-
-    ctx.obj = RadioContext(
-        usb_dev=transport.usb_dev,
-        transport=transport,
-        radio=radio,
-    )
+        pass
 
 
 @cli.command()
+@with_radio
 @click.pass_context
-def info(ctx: click.Context) -> None:
+def info(ctx: click.Context, radio: Radio) -> None:
     """Print device information."""
 
     obj = ctx.ensure_object(RadioContext)
 
     usb_dev = obj.usb_dev
+    assert usb_dev is not None
 
     print("USB information:")
     print(f"\tManufacturer: {usb_dev.manufacturer}")
@@ -94,7 +116,7 @@ def info(ctx: click.Context) -> None:
     print(f"\tSerial number: {usb_dev.serial_number}")
     print()
 
-    prot = obj.radio.protocol_info
+    prot = radio.protocol_info
     print("Protocol:")
     print(f"\tUUID: {prot.uuid}")
     print(f"\tVersion: {prot.version}")
@@ -102,11 +124,11 @@ def info(ctx: click.Context) -> None:
     print()
 
     print("Firmware:")
-    print(f"\tVersion: {obj.radio.firmware_info.version}")
+    print(f"\tVersion: {radio.firmware_info.version}")
     print()
 
     print("Bootloaders:")
-    for bl in obj.radio.bootloader_info:
+    for bl in radio.bootloader_info:
         try:
             print(f"\t{BootloaderType(bl.type).name} (0x{bl.type:02x}):")
         except ValueError:
@@ -116,7 +138,7 @@ def info(ctx: click.Context) -> None:
         print(f"\t\tVersion: {bl.version}")
     print()
 
-    board = obj.radio.board_info
+    board = radio.board_info
     print("Board:")
     print(f"\tCompatible: {board.compatible}")
     print(f"\tVariant: 0x{board.variant}")
@@ -124,7 +146,7 @@ def info(ctx: click.Context) -> None:
     print()
 
     print("Radio configurations:")
-    for idx, preset in enumerate(obj.radio.radio_preset_descs):
+    for idx, preset in enumerate(radio.radio_preset_descs):
         try:
             known_preset = RadioPreset(preset.uuid)
             print(f"\t{idx}: {preset.uuid}: {known_preset.long_name}")
@@ -140,20 +162,19 @@ bootloader_types = {
 
 
 @cli.command()
+@with_radio
 @click.pass_context
 @click.option(
     "--type", "-t", type=click.Choice(list(bootloader_types.keys())), default="reboot"
 )
-def reboot(ctx: click.Context, type: str) -> None:
+def reboot(ctx: click.Context, radio: Radio, type: str) -> None:
     """Reboot the device. The type parameter can be used to enter the
     built-in bootloader on supported devices.
 
     """
 
-    obj = ctx.ensure_object(RadioContext)
-
     bl = bootloader_types[type]
-    obj.radio.reboot(bl)
+    radio.reboot(bl)
 
 
 @cli.group()
@@ -164,16 +185,14 @@ def test() -> None:
 
 
 @test.command()
+@with_radio
 @click.pass_context
-def ping(ctx: click.Context) -> None:
+def ping(ctx: click.Context, radio: Radio) -> None:
     """Transport layer ping test. This test sends a series of ping
     requests with different payload sizes. This test is designed to
     exercise various fragmentation scenarios and payload overflows.
 
     """
-
-    obj = ctx.ensure_object(RadioContext)
-    radio = obj.radio
 
     def ping_data(length: int) -> bytes:
         return bytes((i % 0xFF for i in range(length)))
@@ -204,16 +223,14 @@ def ping(ctx: click.Context) -> None:
 
 
 @test.command()
+@with_radio
 @click.pass_context
-def loopback(ctx: click.Context) -> None:
+def loopback(ctx: click.Context, radio: Radio) -> None:
     """Test radio RX/TX using a special loopback protocol preset. This
     currently requires a firmware compiled with a special test radio
     backend.
 
     """
-
-    obj = ctx.ensure_object(RadioContext)
-    radio = obj.radio
 
     try:
         radio.set_active_preset(RadioPreset.TEST_LOOPBACK)
@@ -247,6 +264,7 @@ def _rx(
 
 
 @cli.command()
+@with_radio
 @click.pass_context
 @click.option("--preset", "-p", type=int, default=0)
 @click.option(
@@ -255,7 +273,9 @@ def _rx(
     type=click.Path(dir_okay=False, writable=True, path_type=pathlib.Path),
     default=None,
 )
-def rx(ctx: click.Context, preset: int, database: Optional[pathlib.Path]) -> None:
+def rx(
+    ctx: click.Context, radio: Radio, preset: int, database: Optional[pathlib.Path]
+) -> None:
     """Receive packets. The default behavior is to print packets on
     the console.
 
@@ -267,9 +287,6 @@ def rx(ctx: click.Context, preset: int, database: Optional[pathlib.Path]) -> Non
 
     def print_handler(rx_info: RxInfo, payload: bytes, ts: float) -> None:
         print(rx_info, ":", payload.hex())
-
-    obj = ctx.ensure_object(RadioContext)
-    radio = obj.radio
 
     try:
         preset_desc = radio.radio_preset_descs[preset]
