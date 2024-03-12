@@ -19,11 +19,13 @@ from collections.abc import (
     ValuesView,
 )
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import (
     Any,
     Iterable,
     Iterator,
     Optional,
+    Tuple,
     Union,
 )
 from uuid import UUID
@@ -168,6 +170,60 @@ class DatabaseObject(ABC):
         pass
 
 
+@dataclass
+class RawPacket:
+    ts: float
+    preset_uuid: UUID
+    rx_info: RxInfo
+    payload: bytes
+    meta: Optional[bytes]
+
+    @staticmethod
+    def from_packet(
+        radio_preset: RadioPresetDesc,
+        rx_info: RxInfo,
+        data: bytes,
+        *,
+        ts: Optional[float] = None,
+    ) -> "RawPacket":
+        if ts is None:
+            ts = time.time()
+
+        meta_size = radio_preset.rx_meta_size
+        if meta_size:
+            payload, meta = data[:-meta_size], data[-meta_size:]
+        else:
+            payload, meta = data, None
+
+        return RawPacket(
+            ts=ts,
+            preset_uuid=radio_preset.uuid,
+            rx_info=RxInfo(
+                # Don't assign a preset since we don't know the index
+                # at this point.
+                flags=rx_info.flags & ~RxInfo.F_PRESET_VALID,
+                radio_preset=None,
+                crc_ok=rx_info.crc_ok,
+                channel=rx_info.channel,
+                rssi=rx_info.rssi,
+            ),
+            payload=payload,
+            meta=meta,
+        )
+
+    def _row_tuple(self):
+        return (
+            self.ts,
+            self.payload,
+            self.meta,
+            self.rx_info.flags,
+            self.rx_info.rssi,
+            self.rx_info.channel,
+            self.rx_info.crc_ok,
+            self.preset_uuid,
+        )
+
+
 class PacketDatabase(DatabaseObject):
     def __init__(self, connection: sqlite3.Connection):
         super().__init__(
@@ -227,38 +283,13 @@ CREATE TABLE raw_packets(
             "INSERT OR IGNORE INTO protocols(uuid, name) VALUES (?, ?);", _presets
         )
 
-    def add_packet(
-        self,
-        radio_preset: RadioPresetDesc,
-        header: RxInfo,
-        data: bytes,
-        *,
-        ts: Optional[float] = None,
-    ) -> int:
-        if ts is None:
-            ts = time.time()
-
-        meta_size = radio_preset.rx_meta_size
-        if meta_size:
-            payload, meta = data[:-meta_size], data[-meta_size:]
-        else:
-            payload, meta = data, None
-
+    def add_packet(self, packet: RawPacket) -> int:
         cursor = self._conn.execute(
             """
 INSERT INTO raw_packets(time, protocol, payload, meta, flags, rssi, channel, crc_ok)
     SELECT ?, id, ?, ?, ?, ?, ?, ? FROM protocols WHERE uuid=? RETURNING id;
         """,
-            (
-                ts,
-                payload,
-                meta,
-                header.flags,
-                header.rssi,
-                header.channel,
-                header.crc_ok,
-                radio_preset.uuid,
-            ),
+            packet._row_tuple(),
         )
 
         rows = cursor.fetchall()

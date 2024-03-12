@@ -25,7 +25,10 @@ from rfchameleon import (
     RadioErrno,
     TransportTimeoutError,
 )
-from rfchameleon.db import PacketDatabase
+from rfchameleon.db import (
+    PacketDatabase,
+    RawPacket,
+)
 from rfchameleon.radio import (
     Radio,
     RadioPreset,
@@ -281,8 +284,9 @@ def rx(ctx: click.Context, preset: int, database: Optional[pathlib.Path]) -> Non
         db = ctx.with_resource(PacketDatabase.open(database))
 
         def db_handler(rx_info: RxInfo, payload: bytes, ts: float) -> None:
+            packet = RawPacket.from_packet(preset_desc, rx_info, payload, ts=ts)
             with db.transaction():
-                db.add_packet(preset_desc, rx_info, payload, ts=ts)
+                db.add_packet(packet)
 
         with db.transaction():
             db.create_or_upgrade_tables()
