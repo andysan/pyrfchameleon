@@ -211,6 +211,42 @@ class RawPacket:
             meta=meta,
         )
 
+    @staticmethod
+    def _from_row(
+        ts: float,
+        preset_uuid: UUID,
+        payload: bytes,
+        meta: Optional[bytes],
+        flags: Optional[int],
+        rssi: Optional[float],
+        channel: Optional[int],
+        crc_ok: Optional[bool],
+    ) -> "RawPacket":
+        if flags is None:
+            flags = (
+                (RxInfo.F_CRC_OK if crc_ok is not None else 0)
+                | (RxInfo.F_CRC_VALID if crc_ok else 0)
+                | RxInfo.F_PRESET_VALID
+                | (RxInfo.F_CHANNEL_VALID if channel is not None else 0)
+                | (RxInfo.F_RSSI_VALID if rssi is not None else 0)
+            )
+
+        return RawPacket(
+            ts=ts,
+            preset_uuid=preset_uuid,
+            rx_info=RxInfo(
+                # Don't assign a preset since we don't know the index
+                # at this point.
+                flags=flags & ~RxInfo.F_PRESET_VALID,
+                radio_preset=None,
+                crc_ok=crc_ok,
+                channel=channel,
+                rssi=rssi,
+            ),
+            payload=payload,
+            meta=meta,
+        )
+
     def _row_tuple(self):
         return (
             self.ts,
@@ -297,3 +333,21 @@ INSERT INTO raw_packets(time, protocol, payload, meta, flags, rssi, channel, crc
         assert len(rows[0]) == 1
         assert isinstance(rows[0][0], int)
         return rows[0][0]
+
+    def raw_packets(self, id: Optional[int] = None) -> Iterable[Tuple[int, RawPacket]]:
+        if id is None:
+            query = ";"
+        else:
+            query = f" WHERE raw_packets.id = {id:d};"
+
+        cursor = self._conn.execute(
+            """
+SELECT raw_packets.id, time, protocols.uuid, payload, meta, flags, rssi, channel, crc_ok
+    FROM raw_packets
+    LEFT JOIN protocols on raw_packets.protocol = protocols.id
+"""
+            + query
+        )
+
+        for row in cursor:
+            yield row[0], RawPacket._from_row(*row[1:])
