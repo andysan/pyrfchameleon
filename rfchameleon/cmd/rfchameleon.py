@@ -62,6 +62,7 @@ class RadioContext:
     transport: Optional[RadioTransport] = None
     radio: Optional[Radio] = None
     usb_dev: Optional[usb.core.Device] = None
+    db: Optional[PacketDatabase] = None
 
 
 def with_radio(func: Callable[Concatenate[Radio, P], R]) -> Callable[P, R]:
@@ -73,6 +74,19 @@ def with_radio(func: Callable[Concatenate[Radio, P], R]) -> Callable[P, R]:
             ctx.fail("Failed to find RF Chameleon.")
 
         return func(radio, *args, **kwargs)
+
+    return wrapper
+
+
+def with_database(func: Callable[Concatenate[PacketDatabase, P], R]) -> Callable[P, R]:
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        ctx = click.get_current_context()
+        db = ctx.ensure_object(RadioContext).db
+        if db is None:
+            ctx.fail("No database specified")
+
+        return func(db, *args, **kwargs)
 
     return wrapper
 
@@ -92,6 +106,15 @@ def packet_handler_print(packet: RawPacket) -> None:
 
     ts = datetime.fromtimestamp(packet.ts).isoformat()
     print(ts, packet.payload.hex(), ", ".join(meta))
+
+
+def packet_handler_db(packet: RawPacket) -> None:
+    ctx = click.get_current_context()
+    obj = ctx.ensure_object(RadioContext)
+    assert obj.db is not None
+
+    with obj.db.transaction():
+        obj.db.add_packet(packet)
 
 
 @click.group()
@@ -114,6 +137,22 @@ def cli(
         obj.radio = Radio(transport)
     except NoDeviceError:
         pass
+
+
+@cli.group()
+@click.pass_context
+@click.option(
+    "--database",
+    "-d",
+    type=click.Path(dir_okay=False, writable=True, path_type=pathlib.Path),
+    required=True,
+)
+def db(ctx: click.Context, database: Optional[pathlib.Path]) -> None:
+    """Database operations."""
+
+    obj = ctx.ensure_object(RadioContext)
+    if database is not None:
+        obj.db = ctx.with_resource(PacketDatabase.open(database))
 
 
 @cli.command()
@@ -192,6 +231,17 @@ def reboot(ctx: click.Context, radio: Radio, type: str) -> None:
 
     bl = bootloader_types[type]
     radio.reboot(bl)
+
+
+@db.command()
+@with_database
+@click.pass_context
+def dump_packets(ctx: click.Context, database: PacketDatabase) -> None:
+    """Print the packets in the database"""
+
+    with database.transaction():
+        for _, packet in database.raw_packets():
+            packet_handler_print(packet)
 
 
 @cli.group()
@@ -312,17 +362,15 @@ def rx(
     ]
 
     if database is not None:
+        obj = ctx.ensure_object(RadioContext)
         db = ctx.with_resource(PacketDatabase.open(database))
-
-        def db_handler(packet: RawPacket) -> None:
-            with db.transaction():
-                db.add_packet(packet)
+        obj.db = db
 
         with db.transaction():
             db.create_or_upgrade_tables()
             db.update_protocols(radio.radio_preset_descs)
 
-        handlers.append(db_handler)
+        handlers.append(packet_handler_db)
 
     _rx(ctx, radio, preset_desc, handlers)
 
