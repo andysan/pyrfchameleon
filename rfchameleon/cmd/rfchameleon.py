@@ -271,7 +271,7 @@ def _rx(
     with radio.rx_enabled():
         while True:
             try:
-                rx_info, payload = radio.recv(timeout=1)
+                rx_info, payload = radio.recv()
                 packet = RawPacket.from_packet(preset_desc, rx_info, payload)
             except TransportTimeoutError:
                 continue
