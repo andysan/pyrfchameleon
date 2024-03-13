@@ -166,20 +166,34 @@ class UsbTransport(RadioTransport):
             _header = bytes(
                 self._usb_ep_in.read(self._usb_ep_in.wMaxPacketSize, timeout=timeout)
             )
+            logger.debug("bulk_read: header block: %s", _header.hex())
             header = BulkInHeader.unpack(_header)
             logger.debug("bulk_read: %s", header)
             if header.magic != BulkInHeader.MAGIC:
                 raise TransportException("Invalid header")
-
-            data = b""
-            while len(data) < header.payload_length:
-                data += bytes(
-                    self._usb_ep_in.read(header.payload_length, timeout=timeout)
-                )
         except usb.core.USBTimeoutError as e:
             raise TransportTimeoutError() from e
+        except Exception as e:
+            logger.debug("bulk_read header unhandled exception: %s", e)
+            raise
 
-        return header, bytes(data)
+        try:
+            data = b""
+            while len(data) < header.payload_length:
+                block = bytes(
+                    self._usb_ep_in.read(header.payload_length - len(data),
+                                         timeout=timeout)
+                )
+                logger.debug("bulk_read: data block: %s", block.hex())
+                data += block
+        except usb.core.USBTimeoutError as e:
+            logger.debug("bulk_read data timeout: %s", e)
+            raise TransportTimeoutError() from e
+        except Exception as e:
+            logger.debug("bulk_read data unhandled exception: %s", e)
+            raise
+
+        return header, data
 
     def bulk_write(self, header: BulkOutHeader, data: bytes = b""):
         logger.debug("bulk_write: %s", header)
