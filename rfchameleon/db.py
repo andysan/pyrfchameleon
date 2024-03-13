@@ -276,7 +276,12 @@ class PacketDatabase(DatabaseObject):
             detect_types=sqlite3.PARSE_DECLTYPES,
         )
 
-        conn.autocommit = False
+        try:
+            # The autcommit property was introduced in Python 3.12.
+            conn.autocommit = False  # type: ignore[attr-defined]
+        except AttributeError:
+            pass
+
         conn.execute("PRAGMA foreign_keys = ON;")
 
         try:
