@@ -107,7 +107,7 @@ INSERT INTO table_versions(key, value) VALUES (?, ?)
         )
 
     def __delitem__(self, key: str) -> None:
-        self._conn.execute("DELETE FROM dict WHERE key = ?;", (key,))
+        self._conn.execute("DELETE FROM table_versions WHERE key = ?;", (key,))
 
     def __len__(self) -> int:
         result = self._conn.execute("SELECT count(*) FROM table_versions;").fetchone()
