@@ -9,7 +9,6 @@ import errno
 import logging
 import pathlib
 from dataclasses import dataclass
-from datetime import datetime
 from functools import wraps
 from typing import (
     Callable,
@@ -34,6 +33,11 @@ from rfchameleon import (
 from rfchameleon.db import (
     PacketDatabase,
     RawPacket,
+)
+from rfchameleon.packets import (
+    PacketDBDump,
+    PacketHandler,
+    PacketPrinter,
 )
 from rfchameleon.radio import (
     Radio,
@@ -89,32 +93,6 @@ def with_database(func: Callable[Concatenate[PacketDatabase, P], R]) -> Callable
         return func(db, *args, **kwargs)
 
     return wrapper
-
-
-def packet_handler_print(packet: RawPacket) -> None:
-    rx_info = packet.rx_info
-    meta = []
-
-    if rx_info.crc_ok is not None:
-        meta.append("CRC_OK" if rx_info.crc_ok else "CRC_ERROR")
-
-    if rx_info.rssi is not None:
-        meta.append(f"RSSI: {rx_info.rssi:.1f}")
-
-    if rx_info.channel is not None:
-        meta.append(f"CHANNEL: {rx_info.rssi:.1f}")
-
-    ts = datetime.fromtimestamp(packet.ts).isoformat()
-    print(ts, packet.payload.hex(), ", ".join(meta))
-
-
-def packet_handler_db(packet: RawPacket) -> None:
-    ctx = click.get_current_context()
-    obj = ctx.ensure_object(RadioContext)
-    assert obj.db is not None
-
-    with obj.db.transaction():
-        obj.db.add_packet(packet)
 
 
 @click.group()
@@ -239,9 +217,10 @@ def reboot(ctx: click.Context, radio: Radio, type: str) -> None:
 def dump_packets(ctx: click.Context, database: PacketDatabase) -> None:
     """Print the packets in the database"""
 
+    printer = PacketPrinter()
     with database.transaction():
         for _, packet in database.raw_packets():
-            packet_handler_print(packet)
+            printer.raw_packet(packet)
 
 
 @cli.group()
@@ -313,7 +292,7 @@ def _rx(
     ctx: click.Context,
     radio: Radio,
     preset_desc: RadioPresetDesc,
-    handlers: Sequence[Callable[[RawPacket], None]],
+    handlers: Sequence[PacketHandler],
 ) -> None:
 
     radio.set_active_preset(preset_desc.uuid)
@@ -327,7 +306,7 @@ def _rx(
                 continue
 
             for handler in handlers:
-                handler(packet)
+                handler.raw_packet(packet)
 
 
 @cli.command()
@@ -358,19 +337,16 @@ def rx(
         ctx.fail("Invalid preset")
 
     handlers = [
-        packet_handler_print,
+        PacketPrinter(),
     ]
 
     if database is not None:
-        obj = ctx.ensure_object(RadioContext)
         db = ctx.with_resource(PacketDatabase.open(database))
-        obj.db = db
-
         with db.transaction():
             db.create_or_upgrade_tables()
             db.update_protocols(radio.radio_preset_descs)
 
-        handlers.append(packet_handler_db)
+        handlers.append(PacketDBDump(db))
 
     _rx(ctx, radio, preset_desc, handlers)
 
