@@ -128,11 +128,13 @@ class Radio:
     def ping(self, data: bytes = b"ping", *, timeout: Optional[float] = None) -> None:
         self._transport.ping(data, timeout=timeout)
 
-    def set_active_preset(self, preset: Union[UUID, RadioPreset]) -> None:
+    def set_active_preset(self, preset: Union[UUID, RadioPreset]) -> RadioPresetDesc:
         idx = self._radio_preset_map[
             preset if isinstance(preset, UUID) else preset.value
         ]
         self._transport.set(RadioProperty.SET_ACTIVE_PRESET, idx)
+
+        return self.radio_preset_descs[idx]
 
     def set_state(self, state: RadioState) -> None:
         self._transport.set(RadioProperty.SET_RADIO_STATE, state)
