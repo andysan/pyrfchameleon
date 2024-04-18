@@ -15,6 +15,7 @@ from abc import (
 from collections.abc import (
     ItemsView,
     KeysView,
+    Mapping,
     MutableMapping,
     ValuesView,
 )
@@ -37,6 +38,8 @@ from .transport import (
     RadioPresetDesc,
     RxInfo,
 )
+
+ProtocolMapping = Mapping[UUID, Optional[str]]
 
 sqlite3.register_adapter(UUID, lambda x: str(x).lower())
 sqlite3.register_converter("UUID", lambda x: UUID(x.decode("ASCII")))
@@ -323,14 +326,20 @@ CREATE TABLE raw_packets(
         """
         )
 
-    def update_protocols(self, presets: Iterable[RadioPresetDesc]) -> None:
+    def update_protocols(
+        self, protocols: Union[ProtocolMapping, Iterable[RadioPresetDesc]]
+    ) -> None:
         def preset_name(uuid: UUID) -> Optional[str]:
             try:
                 return RadioPreset(uuid).long_name
             except ValueError:
                 return None
 
-        _presets = [(p.uuid, preset_name(p.uuid)) for p in presets]
+        if isinstance(protocols, Mapping):
+            _presets = list(protocols.items())
+        else:
+            _presets = [(p.uuid, preset_name(p.uuid)) for p in protocols]
+
         self._conn.executemany(
             "INSERT OR IGNORE INTO protocols(uuid, name) VALUES (?, ?);", _presets
         )
