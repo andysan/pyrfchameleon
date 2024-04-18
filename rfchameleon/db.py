@@ -143,6 +143,17 @@ class DatabaseObject(ABC):
         with self._conn:
             yield self
 
+    @contextmanager
+    def savepoint(self, name: str) -> Iterator[Self]:
+        self._conn.execute(f"SAVEPOINT {name};")
+        try:
+            yield self
+        except:
+            self._conn.execute(f"ROLLBACK TO SAVEPOINT {name};")
+            raise
+
+        self._conn.execute(f"RELEASE SAVEPOINT {name};")
+
     def create_or_upgrade_tables(self) -> None:
         try:
             version = self._table_versions[self._table_name]
