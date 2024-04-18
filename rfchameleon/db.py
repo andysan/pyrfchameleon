@@ -344,6 +344,10 @@ CREATE TABLE raw_packets(
             "INSERT OR IGNORE INTO protocols(uuid, name) VALUES (?, ?);", _presets
         )
 
+    def protocols(self) -> ProtocolMapping:
+        cursor = self._conn.execute("SELECT uuid, name FROM protocols;")
+        return {row[0]: row[1] for row in cursor}
+
     def add_packet(self, packet: RawPacket) -> int:
         cursor = self._conn.execute(
             """
