@@ -41,9 +41,9 @@ from rfchameleon.db import (
     RawPacket,
 )
 from rfchameleon.packets import (
+    AutoPacketPrinter,
     PacketDBDump,
     PacketHandler,
-    PacketPrinter,
 )
 from rfchameleon.radio import (
     Radio,
@@ -297,7 +297,7 @@ def dump_packets(
 
     handlers = [PacketHandler.simple_packet_handlers[n]() for n in packet_handler]
     if not handlers:
-        handlers.append(PacketPrinter())
+        handlers.append(AutoPacketPrinter())
 
     with database.transaction():
         for _, packet in database.raw_packets():
@@ -431,7 +431,7 @@ def rx(
 
     handlers = [PacketHandler.simple_packet_handlers[n]() for n in packet_handler]
     if not handlers:
-        handlers.append(PacketPrinter())
+        handlers.append(AutoPacketPrinter())
 
     if database is not None:
         db = ctx.with_resource(PacketDatabase.open(database))
