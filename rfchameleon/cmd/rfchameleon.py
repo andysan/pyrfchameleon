@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import (
     Callable,
+    List,
     Optional,
     Sequence,
     TypeVar,
@@ -60,6 +61,8 @@ R = TypeVar("R")
 
 logger = logging.getLogger(__name__)
 
+packet_handler_names: List[str] = []
+
 
 @dataclass
 class RadioContext:
@@ -107,6 +110,10 @@ def cli(
 
     obj = RadioContext()
     ctx.obj = obj
+
+    # Create the list of valid packet handlers after plugins have been
+    # loaded.
+    packet_handler_names.extend(PacketHandler.simple_packet_handlers.keys())
 
     try:
         transport = ctx.with_resource(UsbTransport.open())
@@ -214,13 +221,28 @@ def reboot(ctx: click.Context, radio: Radio, type: str) -> None:
 @db.command()
 @with_database
 @click.pass_context
-def dump_packets(ctx: click.Context, database: PacketDatabase) -> None:
+@click.option(
+    "--packet-handler",
+    "-p",
+    type=click.Choice(packet_handler_names),
+    multiple=True,
+    default=[],
+)
+def dump_packets(
+    ctx: click.Context,
+    database: PacketDatabase,
+    packet_handler: List[str] = [],
+) -> None:
     """Print the packets in the database"""
 
-    printer = PacketPrinter()
+    handlers = [PacketHandler.simple_packet_handlers[n]() for n in packet_handler]
+    if not handlers:
+        handlers.append(PacketPrinter())
+
     with database.transaction():
         for _, packet in database.raw_packets():
-            printer.raw_packet(packet)
+            for handler in handlers:
+                handler.raw_packet(packet)
 
 
 @cli.group()
@@ -319,8 +341,19 @@ def _rx(
     type=click.Path(dir_okay=False, writable=True, path_type=pathlib.Path),
     default=None,
 )
+@click.option(
+    "--packet-handler",
+    "-p",
+    type=click.Choice(packet_handler_names),
+    multiple=True,
+    default=[],
+)
 def rx(
-    ctx: click.Context, radio: Radio, preset: int, database: Optional[pathlib.Path]
+    ctx: click.Context,
+    radio: Radio,
+    preset: int,
+    database: Optional[pathlib.Path],
+    packet_handler: List[str] = [],
 ) -> None:
     """Receive packets. The default behavior is to print packets on
     the console.
@@ -336,9 +369,9 @@ def rx(
     except IndexError:
         ctx.fail("Invalid preset")
 
-    handlers = [
-        PacketPrinter(),
-    ]
+    handlers = [PacketHandler.simple_packet_handlers[n]() for n in packet_handler]
+    if not handlers:
+        handlers.append(PacketPrinter())
 
     if database is not None:
         db = ctx.with_resource(PacketDatabase.open(database))
