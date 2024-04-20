@@ -5,12 +5,18 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import inspect
 from abc import (
     ABC,
     abstractmethod,
 )
 from datetime import datetime
-from typing import Tuple
+from typing import (
+    Any,
+    Dict,
+    Tuple,
+    Type,
+)
 
 from rfchameleon.db import (
     PacketDatabase,
@@ -19,6 +25,21 @@ from rfchameleon.db import (
 
 
 class PacketHandler(ABC):
+    simple_packet_handlers: Dict[str, Type["PacketHandler"]] = {}
+
+    @classmethod
+    def __init_subclass__(cls, /, **kwargs) -> None:
+        super().__init_subclass__(**kwargs)
+
+        try:
+            # Check if the class can be instantiated without
+            # arguments. Add it to the list of simple packet handlers
+            # in that case.
+            inspect.signature(cls).bind()
+            PacketHandler.simple_packet_handlers[cls.__name__] = cls
+        except TypeError:
+            pass
+
     @abstractmethod
     def raw_packet(self, packet: RawPacket) -> None:
         pass
