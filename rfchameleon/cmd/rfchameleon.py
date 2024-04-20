@@ -6,8 +6,13 @@
 #
 
 import errno
+import importlib
+import importlib.metadata
+import importlib.util
 import logging
 import pathlib
+import sys
+import types
 from dataclasses import dataclass
 from functools import wraps
 from typing import (
@@ -66,6 +71,7 @@ packet_handler_names: List[str] = []
 
 @dataclass
 class RadioContext:
+    plugins: List[types.ModuleType]
     transport: Optional[RadioTransport] = None
     radio: Optional[Radio] = None
     usb_dev: Optional[usb.core.Device] = None
@@ -101,15 +107,69 @@ def with_database(func: Callable[Concatenate[PacketDatabase, P], R]) -> Callable
 @click.group()
 @click.pass_context
 @click.option("--debug", is_flag=True)
+@click.option(
+    "--no-plugins",
+    is_flag=True,
+    help="Disable plugins",
+)
+@click.option(
+    "--module",
+    "-m",
+    multiple=True,
+    type=str,
+    help="Additional module to load",
+)
+@click.option(
+    "--plugin",
+    "-p",
+    multiple=True,
+    type=click.Path(
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        path_type=pathlib.Path,
+    ),
+    help="Additional module to load",
+)
 def cli(
     ctx: click.Context,
     debug: bool,
+    module: List[str],
+    plugin: List[pathlib.Path],
+    no_plugins: bool,
 ) -> None:
     if debug:
         logging.basicConfig(level=logging.DEBUG)
 
-    obj = RadioContext()
+    obj = RadioContext(plugins=[])
     ctx.obj = obj
+
+    if not no_plugins:
+        for ep in importlib.metadata.entry_points(group="rfchameleon.plugins.cli"):
+            logger.debug("Loading plugin '%s' as '%s'", ep.value, ep.name)
+            obj.plugins.append(ep.load())
+
+    for name in module:
+        logger.debug("Loading plugin module '%s'", name)
+        try:
+            mod = importlib.import_module(name)
+        except ImportError:
+            ctx.fail(f"Failed to import {name}")
+
+        obj.plugins.append(mod)
+
+    for path in plugin:
+        module_name = f"rfchameleon.plugins.{path.stem}"
+        logger.debug("Loading plugin '%s' as %s", path, module_name)
+
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        assert spec is not None
+        assert spec.loader is not None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sys.modules[module_name] = mod
+        obj.plugins.append(mod)
 
     # Create the list of valid packet handlers after plugins have been
     # loaded.
