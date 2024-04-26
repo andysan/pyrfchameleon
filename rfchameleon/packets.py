@@ -151,7 +151,7 @@ class AutoPacketPrinter(PacketHandler):
         return self.get_printer(packet).raw_packet(packet)
 
 
-def PacketDBDump(PacketHandler):
+class PacketDBDump(PacketHandler):
     def __init__(self, db: PacketDatabase):
         assert db is not None
         self.db = db
