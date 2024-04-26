@@ -283,7 +283,6 @@ def reboot(ctx: click.Context, radio: Radio, type: str) -> None:
 @click.pass_context
 @click.option(
     "--packet-handler",
-    "-p",
     type=click.Choice(packet_handler_names),
     multiple=True,
     default=[],
@@ -403,7 +402,6 @@ def _rx(
 )
 @click.option(
     "--packet-handler",
-    "-p",
     type=click.Choice(packet_handler_names),
     multiple=True,
     default=[],
