@@ -48,6 +48,8 @@ class RadioPreset(enum.Enum):
     EI_RADIOLINK_BULK_V1 = UUID("0100F80F-61FD-46D5-9BC8-94AE0773FBA0")
     EI_RADIOLINK_BULK_V2 = UUID("0101F80F-61FD-46D5-9BC8-94AE0773FBA0")
 
+    ALERT_ALARM = UUID("00003637-087D-41AC-A143-EE6423D40DFC")
+
     @property
     def long_name(self) -> str:
         try:
